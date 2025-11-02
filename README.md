@@ -48,7 +48,7 @@ pip install --upgrade pip setuptools wheel
 pip install --only-binary :all: -r requirements.txt
 ```
 
-4. **Initialize database**
+4. **Initialize database** (optional for local dev, auto-initializes on Streamlit Cloud)
 ```bash
 python setup_database.py
 ```
@@ -57,6 +57,8 @@ python setup_database.py
 ```bash
 streamlit run app.py
 ```
+
+**Note**: On Streamlit Cloud, the database and sample data automatically initialize on first deployment. Manual setup is only required for local development.
 
 Access the dashboard at `http://localhost:8501`
 
@@ -78,11 +80,15 @@ Access the dashboard at `http://localhost:8501`
 - **Customer Profiles**: Complete investigation context with risk aggregation
 
 ### Dashboard Features
-- Professional UI with color-coded severity/status badges
-- Real-time alert metrics and analytics
+- Professional UI with enhanced color-coded severity/status badges
+- Real-time alert metrics with tooltips and visual feedback
+- Interactive filtering (Status, Severity, Date Range, Merchant, Analyst)
+- Comprehensive analytics dashboard with charts
+- Mini audit log feed showing recent system activity
 - Transaction detail views with customer linking
-- Audit trail for compliance
+- Complete audit trail for compliance
 - Excel/PDF report generation
+- Auto-initialization for Streamlit Cloud deployments
 
 ## 📁 Project Structure
 

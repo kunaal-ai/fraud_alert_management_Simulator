@@ -153,7 +153,7 @@ transactions = session.query(Transaction).all()
 
 ### 2. Data Generator (`data_generator.py`)
 
-**Purpose**: Creates synthetic transaction data for testing and demonstration.
+**Purpose**: Creates synthetic transaction data for testing and demonstration with intentional fraud patterns.
 
 **Key Functions**:
 - `generate_transactions(num_transactions, days_back)`: Create synthetic transactions
@@ -162,7 +162,12 @@ transactions = session.query(Transaction).all()
 **Features**:
 - Realistic transaction patterns
 - Configurable volume and time range
-- Includes fraud patterns for testing
+- **Intentional fraud scenarios** designed to trigger multiple detection rules:
+  - **10% CRITICAL scenarios**: Multiple high-risk patterns (risk score 80+)
+  - **15% HIGH scenarios**: 2-3 risk patterns (risk score 60-79)
+  - **25% MEDIUM scenarios**: 2 patterns (risk score 40-59)
+  - **50% LOW scenarios**: Normal transactions or single rule trigger
+- Includes velocity patterns, geo-jumps, unusual times, and suspicious merchants
 
 **Usage**:
 ```python
@@ -278,19 +283,24 @@ print(profile['avg_risk_score'])
 
 ### 7. Dashboard (`dashboard.py`)
 
-**Purpose**: Interactive web interface for fraud analysts.
+**Purpose**: Interactive web interface for fraud analysts with enhanced UI/UX features.
 
-**Features**:
+**Key Features**:
+- Auto-initialization of database and sample data (for Streamlit Cloud deployments)
+- Color-coded severity indicators and SLA badges with visual feedback
+- Interactive filtering (Status, Severity, Date Range, Merchant, Analyst)
+- Real-time metrics with tooltips explaining each metric
+- Comprehensive analytics dashboard with interactive charts
+- Mini audit log feed showing last 5 system actions
 - Alert queue with filtering and sorting
 - Priority and SLA indicators
 - Alert detail investigation view
 - Customer risk profiles
 - Bulk operations
-- Analytics charts
-- Audit trail viewing
+- Complete audit trail viewing
 
 **Views**:
-- **Alert Queue**: Main alert triage interface
+- **Alert Queue**: Main alert triage interface with analytics
 - **Customer Profile**: Customer investigation view
 
 ### 8. Reports (`reports.py`)
@@ -497,8 +507,10 @@ if transaction.mcc_code in high_risk_mccs:
    ```bash
    streamlit run app.py
    ```
+   
+   **Streamlit Cloud Note**: On Streamlit Cloud, the database automatically initializes on first run. Sample data is generated automatically if the database is empty.
 
-2. **Enter Analyst ID**: Enter your analyst identifier (e.g., "ANALYST001")
+2. **Login**: Enter credentials (default: `analyst1` / `password123` or `admin` / `admin123`)
 
 3. **Select View Mode**: Choose between "Alert Queue" or "Customer Profile"
 
@@ -506,19 +518,31 @@ if transaction.mcc_code in high_risk_mccs:
 
 #### Summary Metrics
 
-The top of the dashboard shows 5 key metrics:
-- **Total Alerts**: Count of all alerts matching filters
-- **Open Alerts**: Alerts not yet resolved/dismissed
-- **Critical**: CRITICAL severity alerts (immediate attention)
+The dashboard displays comprehensive metrics with color-coded visual feedback and tooltips:
+
+**Overall Status** (with ℹ️ tooltips):
+- **Total Alerts**: Count of all alerts matching current filters
+- **Open Alerts**: Alerts not yet resolved or dismissed
+- **Resolved**: All resolved alerts (counted regardless of status filter)
+
+**Severity Breakdown** (color-coded cards):
+- **🔴 Critical**: Highest risk - immediate action required (red background)
+- **🟠 High**: High risk - review within 4 hours (orange background)
+- **🔵 Medium**: Moderate risk - review within 24 hours (blue background)
+- **🟢 Low**: Low risk - review within 48 hours (green background)
+
+**Action Required**:
 - **Escalated**: Alerts requiring higher-level review
-- **Past SLA**: Alerts that have exceeded their SLA deadline
+- **Past SLA**: Alerts older than 24 hours (SLA breached) - shown with 🚨 indicator
 
 #### Filters
 
 Use sidebar filters to narrow alerts:
 - **Alert Status**: Filter by OPEN, REVIEWING, ESCALATED, DISMISSED, RESOLVED
-- **Severity Level**: Filter by CRITICAL, HIGH, MEDIUM, LOW
-- **Date Range**: Select time period for alerts
+- **Severity Level**: Filter by CRITICAL, HIGH, MEDIUM, LOW (color-coded for easy identification)
+- **Date Range**: Select time period for alerts (default: last 30 days)
+- **Merchant**: Filter alerts by merchant name (if available)
+- **Assigned Analyst**: Filter by assigned analyst or view unassigned alerts
 - **Sort By**: Choose sorting method
   - Priority (Highest First) - Recommended default
   - Created Date (Newest/Oldest)
@@ -535,17 +559,22 @@ Use sidebar filters to narrow alerts:
 
 #### Alert Table
 
-The table displays:
+The table displays alerts with enhanced color coding:
 - **Alert ID**: Unique identifier
-- **Severity**: Color-coded badge (CRITICAL/HIGH/MEDIUM/LOW)
+- **Severity**: Color-coded with emoji indicators (🔴 CRITICAL, 🟠 HIGH, 🔵 MEDIUM, 🟢 LOW) and background colors
 - **Risk Score**: 0-100 numeric score
 - **Priority**: Combined priority score
-- **SLA Status**: Visual indicator with time remaining/overdue
+- **SLA Status**: Color-coded indicators
+  - 🔴 Red = Past SLA (breached)
+  - 🟡 Yellow = Warning (approaching SLA)
+  - 🟢 Green = OK (within SLA)
 - **Status**: Current alert status
-- **Age**: Minutes since alert creation
-- **Transaction ID**: Linked transaction
-- **Created At**: Timestamp
-- **Analyst**: Assigned analyst
+- **Created**: Timestamp
+
+**Visual Features:**
+- Severity column uses colored backgrounds for quick scanning
+- SLA column color-coded for immediate risk assessment
+- Table limited to top 20 alerts for performance (metrics show all matching alerts)
 
 #### Alert Details
 
@@ -578,6 +607,38 @@ When you select an alert:
 **Audit Trail**:
 - Complete log of all actions
 - Shows who, what, when, and why
+
+#### Analytics Dashboard
+
+The dashboard includes comprehensive analytics with interactive charts:
+
+**Alerts by Severity**:
+- Pie chart showing distribution across CRITICAL, HIGH, MEDIUM, LOW
+- Color-coded segments matching severity indicators
+
+**Alerts by Status**:
+- Bar chart showing status distribution (OPEN, RESOLVED, etc.)
+
+**Top Risky Merchants**:
+- Horizontal bar chart showing top 10 merchants by alert count
+- Helps identify merchant-specific fraud patterns
+
+**Alerts Over Time**:
+- Line chart with area fill showing daily alert trends
+- Uses all matching alerts (not just displayed table)
+- Helps identify temporal patterns and spikes
+
+#### Recent Activity Feed
+
+At the bottom of the Alert Queue view, a mini audit log feed shows:
+- **Last 5 system actions** across all alerts
+- Color-coded by action type:
+  - Green = Resolved
+  - Red = Escalated
+  - Gray = Dismissed
+  - Blue = Viewed
+- Displays: Time, Action (with icon), Analyst, Alert ID, Severity, Details
+- Provides real-time visibility into system activity
 
 ### Customer Profile View
 

@@ -22,26 +22,24 @@
 
 ## 2. Initialize Database and Load Data
 
-1. **Initialize the database**:
-   ```bash
-   python scripts/create_db.py
-   ```
+Run the setup script to initialize everything:
+```bash
+python setup_database.py
+```
 
-2. **Load sample transaction data**:
-   ```bash
-   python scripts/ingest_transactions.py
-   ```
-   This will:
-   - Create the SQLite database
-   - Generate 500 synthetic transactions
-   - Run fraud detection rules
-   - Generate initial alerts
+This will:
+- Create the SQLite database
+- Generate 500 synthetic transactions (with variety of severity levels)
+- Run fraud detection rules
+- Generate initial alerts
+
+**Note:** On Streamlit Cloud, the database auto-initializes on first run. Manual setup is only needed for local development.
 
 ## 3. Launch the Analyst Console
 
 Start the Streamlit dashboard:
 ```bash
-streamlit run scripts/dashboard.py
+streamlit run app.py
 ```
 
 Once launched, open `http://localhost:8501` in your browser and navigate to the alerts queue tab to begin reviewing alerts.
