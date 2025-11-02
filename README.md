@@ -1,6 +1,9 @@
+[![Docs](https://img.shields.io/badge/docs-Quickstart-blue)](QUICKSTART.md)
+[![Guide](https://img.shields.io/badge/docs-User_Guide-green)](USER_GUIDE.md)
+
 # FraudOps Alert Management System
 
-A production-ready fraud detection and alert management platform that simulates enterprise fraud operations workflows. This system processes transactions, applies rule-based fraud detection, and provides an interactive dashboard for analysts to triage, investigate, and resolve fraud alerts.
+A portfolio-grade simulator that mirrors enterprise fraud-alert triage workflows — built to demonstrate Fraud Ops logic, automation, and audit tracking. This system processes transactions, applies rule-based fraud detection, and provides an interactive dashboard for analysts to triage, investigate, and resolve fraud alerts.
 
 ## 🎯 Overview
 

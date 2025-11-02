@@ -24,7 +24,7 @@ Comprehensive documentation covering all aspects of the FraudOps Alert Managemen
 
 ## System Overview
 
-The FraudOps Alert Management System is an end-to-end fraud detection and alert triage platform designed to simulate real-world fraud operations workflows. It processes financial transactions, identifies suspicious activity through rule-based detection, and provides tools for fraud analysts to investigate and resolve alerts.
+This simulator replicates a bank's fraud-alert workflow—from transaction ingestion and scoring to analyst triage and audit-logging. It processes financial transactions, identifies suspicious activity through rule-based detection, and provides tools for fraud analysts to investigate and resolve alerts.
 
 ### What This System Does
 
@@ -32,7 +32,7 @@ The FraudOps Alert Management System is an end-to-end fraud detection and alert 
 2. **Analyzes** each transaction using multiple fraud detection rules
 3. **Generates** alerts for suspicious transactions with risk scoring
 4. **Prioritizes** alerts based on risk and SLA deadlines
-5. **Presents** alerts to analysts through an interactive dashboard
+5. **Presents** alerts to analysts through an interactive dashboard where they can review alerts and choose actions—Escalate, Dismiss or Monitor—with full audit trail for compliance tracking
 6. **Tracks** all analyst actions in a complete audit trail
 7. **Generates** reports for management and compliance
 
