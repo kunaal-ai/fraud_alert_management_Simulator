@@ -1,0 +1,79 @@
+{
+  "scenario_name": "Device Sharing + Unusual Time Fraud Case",
+  "description": "Same device used by multiple customers, with transactions occurring at unusual hours",
+  "alert_type": "DEVICE_SHARING + UNUSUAL_TIME + SUSPICIOUS_MERCHANT",
+  "expected_severity": "MEDIUM to HIGH",
+  "expected_rules": ["DEVICE_SHARING", "UNUSUAL_TIME", "SUSPICIOUS_MERCHANT"],
+  "transactions": [
+    {
+      "transaction_id": "TXN_SCENARIO_201",
+      "customer_id": "CUST_SCENARIO_003",
+      "merchant": "Online Gaming Platform",
+      "amount": 150.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-17T03:15:00",
+      "card_type": "AMEX",
+      "device_id": "DEV_SHARED_001",
+      "ip_address": "203.0.113.50",
+      "country": "United States",
+      "city": "Chicago",
+      "mcc_code": "7995",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_202",
+      "customer_id": "CUST_SCENARIO_004",
+      "merchant": "Gaming Store",
+      "amount": 99.99,
+      "currency": "USD",
+      "transaction_date": "2025-01-17T03:30:00",
+      "card_type": "VISA",
+      "device_id": "DEV_SHARED_001",
+      "ip_address": "203.0.113.50",
+      "country": "United States",
+      "city": "Chicago",
+      "mcc_code": "7995",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_203",
+      "customer_id": "CUST_SCENARIO_005",
+      "merchant": "Digital Entertainment",
+      "amount": 75.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-17T04:00:00",
+      "card_type": "MASTERCARD",
+      "device_id": "DEV_SHARED_001",
+      "ip_address": "203.0.113.50",
+      "country": "United States",
+      "city": "Chicago",
+      "mcc_code": "7995",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_204",
+      "customer_id": "CUST_SCENARIO_006",
+      "merchant": "Game Credits Store",
+      "amount": 200.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-17T04:30:00",
+      "card_type": "DISCOVER",
+      "device_id": "DEV_SHARED_001",
+      "ip_address": "203.0.113.50",
+      "country": "United States",
+      "city": "Chicago",
+      "mcc_code": "7995",
+      "status": "completed"
+    }
+  ],
+  "investigation_notes": [
+    "Device DEV_SHARED_001 used by 4 different customers within 7 days",
+    "All transactions occur between 2-5 AM (unusual time)",
+    "All transactions at high-risk merchant category (MCC 7995 - Gaming)",
+    "Same IP address for all transactions suggests potential fraud ring",
+    "Multiple payment methods (AMEX, VISA, MASTERCARD, DISCOVER) on same device",
+    "Pattern suggests compromised device or card sharing scheme",
+    "Recommended action: Investigate device, contact affected customers, consider device blacklisting"
+  ]
+}
+

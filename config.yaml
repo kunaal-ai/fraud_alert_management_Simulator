@@ -1,0 +1,68 @@
+# Fraud Detection System Configuration
+# This file contains all configurable thresholds, weights, and rules
+
+# Rule Thresholds
+rules:
+  high_amount:
+    threshold: 5000  # USD - Transaction amount threshold
+    enabled: true
+  
+  velocity:
+    threshold: 5  # Number of transactions
+    time_window_hours: 1  # Time window for velocity check
+    enabled: true
+  
+  geo_jump:
+    time_window_hours: 2  # Time window to check for location changes
+    enabled: true
+  
+  device_sharing:
+    threshold: 3  # Number of unique customers
+    time_window_days: 7  # Time window for device sharing check
+    enabled: true
+  
+  unusual_time:
+    start_hour: 2  # Start of unusual time window (24-hour format)
+    end_hour: 5  # End of unusual time window (24-hour format)
+    enabled: true
+  
+  suspicious_merchant:
+    high_risk_mcc_codes:  # Merchant Category Codes
+      - "7995"  # Gaming/casino
+      - "7273"  # Dating services
+      - "5967"  # Direct marketing
+      - "5912"  # Drug stores/pharmacies
+    enabled: true
+
+# Rule Weights (for risk score calculation)
+rule_weights:
+  HIGH_AMOUNT: 30
+  VELOCITY: 25
+  GEO_JUMP: 20
+  DEVICE_SHARING: 15
+  UNUSUAL_TIME: 10
+  SUSPICIOUS_MERCHANT: 15
+  DEFAULT: 5  # Default weight for unknown rules
+
+# Risk Score to Severity Mapping
+severity_thresholds:
+  CRITICAL: 80
+  HIGH: 60
+  MEDIUM: 40
+  LOW: 0
+
+# SLA Thresholds (in minutes)
+sla_thresholds:
+  CRITICAL: 15  # 15 minutes
+  HIGH: 60      # 1 hour
+  MEDIUM: 240   # 4 hours
+  LOW: 1440     # 24 hours
+
+# Priority Calculation Weights
+priority_calculation:
+  risk_score_weight: 0.6
+  age_penalty_weight: 0.4
+  max_priority_score: 100
+  age_penalty_before_sla_max: 40
+  age_penalty_after_sla_max: 60
+

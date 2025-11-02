@@ -1,6 +1,8 @@
 """Streamlit dashboard for fraud alert management."""
 import streamlit as st
 import pandas as pd
+import plotly.express as px
+import plotly.graph_objects as go
 from fraud_alert_system.database import get_session, Alert, Transaction, AuditLog
 from fraud_alert_system.priority_manager import (
     calculate_priority_score, get_sla_status, get_time_to_sla, sort_alerts_by_priority
@@ -318,6 +320,22 @@ def perform_bulk_action(session, alert_ids, action, analyst_id, details=""):
     return action_count
 
 
+# Default analyst credentials (simplified for demo)
+ANALYST_CREDENTIALS = {
+    "analyst1": {"password": "password123", "name": "Analyst 1", "id": "ANALYST001"},
+    "analyst2": {"password": "password123", "name": "Analyst 2", "id": "ANALYST002"},
+    "admin": {"password": "admin123", "name": "Admin User", "id": "ADMIN001"}
+}
+
+
+def authenticate_user(username, password):
+    """Simple authentication check."""
+    if username in ANALYST_CREDENTIALS:
+        if ANALYST_CREDENTIALS[username]["password"] == password:
+            return True, ANALYST_CREDENTIALS[username]
+    return False, None
+
+
 def main():
     st.set_page_config(
         page_title="FraudOps Alert Management",
@@ -329,22 +347,65 @@ def main():
     # Load custom CSS
     load_custom_css()
     
-    # Professional Header
-    st.markdown("""
-    <div class="header-container">
-        <h1 class="header-title">🔒 FraudOps Alert Management System</h1>
-        <p class="header-subtitle">Enterprise Fraud Detection & Alert Triage Platform</p>
-    </div>
-    """, unsafe_allow_html=True)
+    # Authentication check
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+        st.session_state.analyst_info = None
     
-    # Sidebar for analyst login and filters
-    with st.sidebar:
-        st.markdown("### 👤 Analyst Portal")
-        analyst_id = st.text_input("Analyst ID", value="ANALYST001", key="analyst_id", 
-                                   help="Enter your analyst identification")
+    # Show login form if not authenticated
+    if not st.session_state.authenticated:
+        st.title("🔒 FraudOps Alert Management System")
+        st.divider()
         
-        st.markdown("---")
-        st.markdown("### 📊 View Mode")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.subheader("🔐 Analyst Login")
+            st.info("**Default credentials:**\n- Username: `analyst1` | Password: `password123`\n- Username: `admin` | Password: `admin123`")
+            
+            username = st.text_input("Username", key="login_username", placeholder="Enter username")
+            password = st.text_input("Password", type="password", key="login_password", placeholder="Enter password")
+            
+            col_login1, col_login2, col_login3 = st.columns([2, 1, 2])
+            with col_login2:
+                if st.button("Login", use_container_width=True, type="primary"):
+                    success, analyst_info = authenticate_user(username, password)
+                    if success:
+                        st.session_state.authenticated = True
+                        st.session_state.analyst_info = analyst_info
+                        st.rerun()
+                    else:
+                        st.error("❌ Invalid username or password")
+        
+        # Footer
+        st.markdown("<hr>", unsafe_allow_html=True)
+        st.caption("Fraud Alert Management Simulator | Portfolio Prototype by Kunaal | 2025")
+        return
+    
+    # User is authenticated - show main dashboard
+    analyst_info = st.session_state.analyst_info
+    analyst_id = analyst_info["id"]
+    
+    # Identity Bar - Simple analyst selection in sidebar
+    with st.sidebar:
+        st.subheader("👤 Analyst Identity")
+        
+        # Map analyst info to display name
+        analyst_display = f"{analyst_info['name']} ({analyst_id})"
+        
+        user = st.selectbox(
+            "Logged in as:",
+            [analyst_display],
+            key="analyst_display"
+        )
+        st.success(f"Session active: {analyst_info['name']}")
+        
+        if st.button("Logout", use_container_width=True):
+            st.session_state.authenticated = False
+            st.session_state.analyst_info = None
+            st.rerun()
+        
+        st.divider()
+        st.subheader("📊 View Mode")
         view_mode = st.radio(
             "Select View",
             ["Alert Queue", "Customer Profile"],
@@ -352,8 +413,8 @@ def main():
             label_visibility="collapsed"
         )
         
-        st.markdown("---")
-        st.markdown("### 🔍 Filters")
+        st.divider()
+        st.subheader("🔍 Filters")
         
         status_filter = st.multiselect(
             "Alert Status",
@@ -379,77 +440,107 @@ def main():
             key="sort_option"
         )
         
-        st.markdown("---")
-        st.markdown("**Version:** 2.0.0")
-        st.markdown("**Last Updated:** " + datetime.now().strftime("%Y-%m-%d"))
+        st.divider()
+        st.caption("**Version:** 2.0.0")
+        st.caption("**Last Updated:** " + datetime.now().strftime("%Y-%m-%d"))
     
-    # Main content area
+    # Main content area - Title appears only once
+    st.title("🔒 FraudOps Alert Management System")
+    
     session = get_session()
     
     try:
         if view_mode == "Alert Queue":
-            # Build query
-            query = session.query(Alert).join(Transaction)
-            
-            if status_filter:
-                query = query.filter(Alert.status.in_(status_filter))
-            
-            if severity_filter:
-                query = query.filter(Alert.severity.in_(severity_filter))
-            
-            if len(date_range) == 2:
-                start_date, end_date = date_range
-                query = query.filter(
-                    and_(
-                        Alert.created_at >= datetime.combine(start_date, datetime.min.time()),
-                        Alert.created_at <= datetime.combine(end_date, datetime.max.time())
+            # Build query with loading spinner
+            with st.spinner('Loading alerts...'):
+                query = session.query(Alert).join(Transaction)
+                
+                if status_filter:
+                    query = query.filter(Alert.status.in_(status_filter))
+                
+                if severity_filter:
+                    query = query.filter(Alert.severity.in_(severity_filter))
+                
+                if len(date_range) == 2:
+                    start_date, end_date = date_range
+                    query = query.filter(
+                        and_(
+                            Alert.created_at >= datetime.combine(start_date, datetime.min.time()),
+                            Alert.created_at <= datetime.combine(end_date, datetime.max.time())
+                        )
                     )
-                )
+                
+                alerts = query.all()
+                
+                # Sort alerts based on option
+                if sort_option == "Priority (Highest First)":
+                    alerts = sort_alerts_by_priority(alerts)
+                elif sort_option == "Risk Score (Highest)":
+                    alerts = sorted(alerts, key=lambda x: x.risk_score, reverse=True)
+                elif sort_option == "Created Date (Newest)":
+                    alerts = sorted(alerts, key=lambda x: x.created_at, reverse=True)
+                elif sort_option == "Created Date (Oldest)":
+                    alerts = sorted(alerts, key=lambda x: x.created_at)
+                
+                # Limit to realistic demo size (top 20)
+                alerts = alerts[:20]
             
-            alerts = query.all()
+            st.success(f"Loaded {len(alerts)} alerts")
             
-            # Sort alerts based on option
-            if sort_option == "Priority (Highest First)":
-                alerts = sort_alerts_by_priority(alerts)
-            elif sort_option == "Risk Score (Highest)":
-                alerts = sorted(alerts, key=lambda x: x.risk_score, reverse=True)
-            elif sort_option == "Created Date (Newest)":
-                alerts = sorted(alerts, key=lambda x: x.created_at, reverse=True)
-            elif sort_option == "Created Date (Oldest)":
-                alerts = sorted(alerts, key=lambda x: x.created_at)
+            st.divider()
+            st.subheader("📈 Dashboard Overview")
             
-            # Professional Summary Metrics
-            st.markdown("### 📈 Dashboard Overview")
-            
-            col1, col2, col3, col4, col5 = st.columns(5)
-            
+            # Calculate metrics
             total_alerts = len(alerts)
             open_alerts = len([a for a in alerts if a.status == 'OPEN'])
             critical_alerts = len([a for a in alerts if a.severity == 'CRITICAL'])
+            high_alerts = len([a for a in alerts if a.severity == 'HIGH'])
+            medium_alerts = len([a for a in alerts if a.severity == 'MEDIUM'])
+            low_alerts = len([a for a in alerts if a.severity == 'LOW'])
             escalated_alerts = len([a for a in alerts if a.status == 'ESCALATED'])
             past_sla = len([a for a in alerts if get_sla_status(a) == 'PAST_SLA' and a.status in ['OPEN', 'REVIEWING']])
+            resolved_alerts = len([a for a in alerts if a.status == 'RESOLVED'])
             
+            # Group 1: Overall Metrics
+            st.markdown("#### Overall Status")
+            col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Alerts", f"{total_alerts:,}", delta=None)
             with col2:
                 st.metric("Open Alerts", f"{open_alerts:,}", 
                          delta=f"-{total_alerts - open_alerts}" if total_alerts > open_alerts else None)
             with col3:
+                st.metric("Resolved", f"{resolved_alerts:,}", delta=None)
+            
+            # Group 2: Severity Breakdown
+            st.markdown("#### Severity Breakdown")
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
                 st.metric("Critical", critical_alerts, 
                          delta="⚠️ Urgent" if critical_alerts > 0 else None,
                          delta_color="inverse" if critical_alerts > 0 else "normal")
+            with col2:
+                st.metric("High", high_alerts, delta=None)
+            with col3:
+                st.metric("Medium", medium_alerts, delta=None)
             with col4:
+                st.metric("Low", low_alerts, delta=None)
+            
+            # Group 3: Action Required
+            st.markdown("#### Action Required")
+            col1, col2 = st.columns(2)
+            with col1:
                 st.metric("Escalated", escalated_alerts, delta=None)
-            with col5:
+            with col2:
                 st.metric("Past SLA", past_sla, 
                          delta="🚨 Action Required" if past_sla > 0 else None,
                          delta_color="inverse" if past_sla > 0 else "normal")
             
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.divider()
             
             # Bulk Operations Section
             if alerts:
-                st.markdown("### ⚡ Bulk Operations")
+                st.subheader("⚡ Bulk Operations")
                 st.markdown('<div class="info-box">💡 <strong>Tip:</strong> Select multiple alerts below, then use bulk actions to process them efficiently.</div>', 
                           unsafe_allow_html=True)
                 
@@ -481,14 +572,14 @@ def main():
                     if 'selected_alerts' in st.session_state and st.session_state.selected_alerts:
                         st.info(f"📌 **{len(st.session_state.selected_alerts)}** alert(s) selected")
             
-            st.markdown("<br>", unsafe_allow_html=True)
+            st.divider()
             
-            # Alert list
+            # Alert list - Minimal core columns
             if not alerts:
-                st.markdown('<div class="info-box">ℹ️ No alerts found matching the current filters. Try adjusting your filter criteria.</div>', 
-                          unsafe_allow_html=True)
+                st.info("ℹ️ No alerts found matching the current filters. Try adjusting your filter criteria.")
             else:
-                st.markdown(f"### 🚨 Alert Queue ({len(alerts):,} alerts) - *Sorted by {sort_option}*")
+                st.subheader(f"🚨 Alert Queue ({len(alerts)} alerts)")
+                st.caption(f"Sorted by: {sort_option}")
                 
                 # Initialize selected alerts in session state
                 if 'selected_alerts' not in st.session_state:
@@ -498,7 +589,7 @@ def main():
                 alert_options = {f"{a.alert_id} | {a.severity} | Risk: {a.risk_score:.1f}": a.alert_id 
                                 for a in alerts}
                 selected_alert_labels = st.multiselect(
-                    "**Select alerts for bulk operations:**",
+                    "Select alerts for bulk operations:",
                     options=list(alert_options.keys()),
                     default=[label for label in alert_options.keys() 
                              if alert_options[label] in st.session_state.selected_alerts],
@@ -506,231 +597,318 @@ def main():
                 )
                 st.session_state.selected_alerts = [alert_options[label] for label in selected_alert_labels]
                 
-                # Display alerts in a styled table
+                # Minimal core columns only
                 alert_data = []
                 for alert in alerts:
                     sla_status = get_sla_status(alert)
                     priority_score = calculate_priority_score(alert)
                     time_to_sla = get_time_to_sla(alert)
                     
-                    # Format SLA indicator
+                    # Format SLA indicator (simplified)
                     if sla_status == 'PAST_SLA':
-                        sla_indicator = f"🔴 Past SLA ({abs(int(time_to_sla))} min)"
+                        sla_indicator = "🔴 Past SLA"
                     elif sla_status == 'APPROACHING_SLA':
-                        sla_indicator = f"🟡 {int(time_to_sla)} min to SLA"
+                        sla_indicator = "🟡 Warning"
                     else:
-                        sla_indicator = f"🟢 OK ({int(time_to_sla)} min)"
+                        sla_indicator = "🟢 OK"
                     
                     alert_data.append({
                         'Alert ID': alert.alert_id,
                         'Severity': alert.severity,
                         'Risk Score': f"{alert.risk_score:.1f}",
                         'Priority': f"{priority_score:.1f}",
-                        'SLA Status': sla_indicator,
+                        'SLA': sla_indicator,
                         'Status': alert.status,
-                        'Age': f"{(datetime.utcnow() - alert.created_at).total_seconds() / 60:.0f} min",
-                        'Transaction ID': alert.transaction_id[:15] + '...' if len(alert.transaction_id) > 15 else alert.transaction_id,
-                        'Created At': alert.created_at.strftime('%Y-%m-%d %H:%M'),
-                        'Analyst': alert.analyst_id or 'Unassigned'
+                        'Created': alert.created_at.strftime('%Y-%m-%d %H:%M')
                     })
                 
                 df_alerts = pd.DataFrame(alert_data)
                 
-                # Style the dataframe
-                def style_severity(val):
-                    badge_html = get_severity_badge_html(val)
-                    return badge_html
+                # Display minimal table
+                st.dataframe(df_alerts, use_container_width=True, hide_index=True, height=300)
                 
-                def style_status(val):
-                    badge_html = get_status_badge_html(val)
-                    return badge_html
+                st.divider()
                 
-                # Display with styling
-                st.dataframe(df_alerts, use_container_width=True, hide_index=True, height=400)
-                
-                st.markdown("<br>", unsafe_allow_html=True)
-                
-                # Alert detail view
-                st.markdown("### 🔍 Alert Investigation")
+                # Alert detail view with expandable panels
+                st.subheader("🔍 Alert Investigation")
                 
                 alert_ids = [a.alert_id for a in alerts]
                 selected_alert_id = st.selectbox(
-                    "**Select Alert to View Details:**",
+                    "Select Alert to View Details:",
                     alert_ids,
-                    key="alert_selector",
-                    label_visibility="visible"
+                    key="alert_selector"
                 )
                 
                 if selected_alert_id:
-                    alert = session.query(Alert).filter(Alert.alert_id == selected_alert_id).first()
+                    with st.spinner('Loading alert details...'):
+                        alert = session.query(Alert).filter(Alert.alert_id == selected_alert_id).first()
                     
                     if alert:
                         # Log view action
                         log_audit_action(selected_alert_id, analyst_id, "VIEWED", "Alert details viewed")
                         
-                        # Create professional detail cards
-                        col1, col2 = st.columns(2)
-                        
-                        with col1:
-                            st.markdown('<div class="section-container">', unsafe_allow_html=True)
-                            st.markdown("#### 📋 Alert Information")
-                            
-                            priority_score = calculate_priority_score(alert)
-                            sla_status = get_sla_status(alert)
-                            time_to_sla = get_time_to_sla(alert)
-                            
-                            st.markdown(f"**Alert ID:** `{alert.alert_id}`")
-                            st.markdown(f"**Severity:** {get_severity_badge_html(alert.severity)}", unsafe_allow_html=True)
-                            st.markdown(f"**Risk Score:** **{alert.risk_score:.1f}** / 100")
-                            st.markdown(f"**Priority Score:** **{priority_score:.1f}** / 100")
-                            st.markdown(f"**SLA Status:** {get_sla_badge_html(sla_status, time_to_sla)}", unsafe_allow_html=True)
-                            
-                            if time_to_sla < 0:
-                                st.markdown(f"**⏱️ Time Past SLA:** **{abs(int(time_to_sla))} minutes**")
-                            else:
-                                st.markdown(f"**⏱️ Time to SLA:** **{int(time_to_sla)} minutes**")
-                            
-                            st.markdown(f"**Status:** {get_status_badge_html(alert.status)}", unsafe_allow_html=True)
-                            st.markdown(f"**Rule Triggered:** `{alert.rule_triggered}`")
-                            st.markdown(f"**Created:** {alert.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
-                            st.markdown(f"**Age:** {(datetime.utcnow() - alert.created_at).total_seconds() / 60:.0f} minutes")
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        
-                        # Get transaction details
-                        transaction = session.query(Transaction).filter(
-                            Transaction.transaction_id == alert.transaction_id
-                        ).first()
-                        
-                        with col2:
-                            st.markdown('<div class="section-container">', unsafe_allow_html=True)
-                            st.markdown("#### 💳 Transaction Details")
-                            
-                            if transaction:
-                                st.markdown(f"**Transaction ID:** `{transaction.transaction_id}`")
-                                st.markdown(f"**Customer ID:** `{transaction.customer_id}`")
-                                st.markdown(f"**Merchant:** **{transaction.merchant}**")
-                                st.markdown(f"**Amount:** **${transaction.amount:,.2f}**")
-                                st.markdown(f"**Date:** {transaction.transaction_date.strftime('%Y-%m-%d %H:%M:%S')}")
-                                st.markdown(f"**Location:** {transaction.city}, {transaction.country}")
-                                st.markdown(f"**Device ID:** `{transaction.device_id}`")
-                                st.markdown(f"**IP Address:** `{transaction.ip_address}`")
-                                st.markdown(f"**MCC Code:** `{transaction.mcc_code}`")
-                                
-                                if st.button("👤 View Customer Profile", key="view_customer", use_container_width=True):
-                                    st.session_state.customer_id_to_view = transaction.customer_id
-                                    st.session_state.view_mode = "Customer Profile"
-                                    st.rerun()
-                            st.markdown('</div>', unsafe_allow_html=True)
-                        
-                        # Alert notes
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        st.markdown("#### 📝 Alert Notes")
-                        st.markdown('<div class="info-box">', unsafe_allow_html=True)
-                        st.markdown(alert.notes or "*No notes available for this alert.*")
-                        st.markdown('</div>', unsafe_allow_html=True)
-                        
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        
-                        # Action buttons
-                        st.markdown("#### ⚡ Quick Actions")
-                        
+                        # Quick action buttons at top
                         col1, col2, col3, col4 = st.columns(4)
-                        
                         with col1:
                             if st.button("🚨 Escalate", key="escalate", use_container_width=True):
-                                alert.status = 'ESCALATED'
-                                alert.analyst_id = analyst_id
-                                session.commit()
-                                log_audit_action(selected_alert_id, analyst_id, "ESCALATED", "Alert escalated")
+                                with st.spinner('Escalating alert...'):
+                                    alert.status = 'ESCALATED'
+                                    alert.analyst_id = analyst_id
+                                    session.commit()
+                                    log_audit_action(selected_alert_id, analyst_id, "ESCALATED", "Alert escalated")
                                 st.success("✅ Alert escalated successfully!")
                                 st.rerun()
                         
                         with col2:
                             if st.button("✅ Resolve", key="resolve", use_container_width=True):
-                                alert.status = 'RESOLVED'
-                                alert.resolved_at = datetime.utcnow()
-                                alert.analyst_id = analyst_id
-                                session.commit()
-                                log_audit_action(selected_alert_id, analyst_id, "RESOLVED", "Alert resolved")
+                                with st.spinner('Resolving alert...'):
+                                    alert.status = 'RESOLVED'
+                                    alert.resolved_at = datetime.utcnow()
+                                    alert.analyst_id = analyst_id
+                                    session.commit()
+                                    log_audit_action(selected_alert_id, analyst_id, "RESOLVED", "Alert resolved")
                                 st.success("✅ Alert resolved successfully!")
                                 st.rerun()
                         
                         with col3:
                             if st.button("❌ Dismiss", key="dismiss", use_container_width=True):
-                                alert.status = 'DISMISSED'
-                                alert.analyst_id = analyst_id
-                                session.commit()
-                                log_audit_action(selected_alert_id, analyst_id, "DISMISSED", "Alert dismissed as false positive")
+                                with st.spinner('Dismissing alert...'):
+                                    alert.status = 'DISMISSED'
+                                    alert.analyst_id = analyst_id
+                                    session.commit()
+                                    log_audit_action(selected_alert_id, analyst_id, "DISMISSED", "Alert dismissed as false positive")
                                 st.success("✅ Alert dismissed successfully!")
                                 st.rerun()
                         
                         with col4:
-                            if st.button("📝 Set Reviewing", key="reviewing", use_container_width=True):
-                                alert.status = 'REVIEWING'
-                                alert.analyst_id = analyst_id
-                                session.commit()
-                                log_audit_action(selected_alert_id, analyst_id, "REVIEWING", "Alert set to reviewing status")
+                            if st.button("📝 Reviewing", key="reviewing", use_container_width=True):
+                                with st.spinner('Updating status...'):
+                                    alert.status = 'REVIEWING'
+                                    alert.analyst_id = analyst_id
+                                    session.commit()
+                                    log_audit_action(selected_alert_id, analyst_id, "REVIEWING", "Alert set to reviewing status")
                                 st.success("✅ Alert status updated!")
                                 st.rerun()
                         
-                        # Add notes
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        st.markdown("#### 💬 Add Notes")
-                        new_note = st.text_area("Enter your notes here:", key="note_input", height=100,
-                                              placeholder="Type your investigation notes, findings, or actions taken...")
-                        if st.button("💾 Save Note", key="save_note", use_container_width=True):
-                            if new_note.strip():
-                                if alert.notes:
-                                    alert.notes = alert.notes + "\n\n" + f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M')}] {new_note}"
+                        # Expandable panels for details
+                        with st.expander("📋 View Full Alert Details", expanded=False):
+                            col1, col2 = st.columns(2)
+                        
+                            with col1:
+                                priority_score = calculate_priority_score(alert)
+                                sla_status = get_sla_status(alert)
+                                time_to_sla = get_time_to_sla(alert)
+                                
+                                st.markdown(f"**Alert ID:** `{alert.alert_id}`")
+                                st.markdown(f"**Severity:** {get_severity_badge_html(alert.severity)}", unsafe_allow_html=True)
+                                st.markdown(f"**Risk Score:** {alert.risk_score:.1f} / 100")
+                                st.markdown(f"**Priority Score:** {priority_score:.1f} / 100")
+                                st.markdown(f"**SLA Status:** {get_sla_badge_html(sla_status, time_to_sla)}", unsafe_allow_html=True)
+                                
+                                if time_to_sla < 0:
+                                    st.markdown(f"**Time Past SLA:** {abs(int(time_to_sla))} minutes")
                                 else:
-                                    alert.notes = f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M')}] {new_note}"
-                                session.commit()
-                                log_audit_action(selected_alert_id, analyst_id, "NOTE_ADDED", new_note)
-                                st.success("✅ Note saved successfully!")
-                                st.rerun()
+                                    st.markdown(f"**Time to SLA:** {int(time_to_sla)} minutes")
+                                
+                                st.markdown(f"**Status:** {get_status_badge_html(alert.status)}", unsafe_allow_html=True)
+                                st.markdown(f"**Rule Triggered:** `{alert.rule_triggered}`")
+                                st.markdown(f"**Created:** {alert.created_at.strftime('%Y-%m-%d %H:%M:%S')}")
+                                st.markdown(f"**Age:** {(datetime.utcnow() - alert.created_at).total_seconds() / 60:.0f} minutes")
+                            
+                            # Get transaction details
+                            transaction = session.query(Transaction).filter(
+                                Transaction.transaction_id == alert.transaction_id
+                            ).first()
+                            
+                            with col2:
+                                if transaction:
+                                    st.markdown(f"**Transaction ID:** `{transaction.transaction_id}`")
+                                    st.markdown(f"**Customer ID:** `{transaction.customer_id}`")
+                                    st.markdown(f"**Merchant:** {transaction.merchant}")
+                                    st.markdown(f"**Amount:** ${transaction.amount:,.2f}")
+                                    st.markdown(f"**Date:** {transaction.transaction_date.strftime('%Y-%m-%d %H:%M:%S')}")
+                                    st.markdown(f"**Location:** {transaction.city}, {transaction.country}")
+                                    st.markdown(f"**Device ID:** `{transaction.device_id}`")
+                                    st.markdown(f"**IP Address:** `{transaction.ip_address}`")
+                                    st.markdown(f"**MCC Code:** `{transaction.mcc_code}`")
+                                    
+                                    if st.button("👤 View Customer Profile", key="view_customer", use_container_width=True):
+                                        st.session_state.customer_id_to_view = transaction.customer_id
+                                        st.session_state.view_mode = "Customer Profile"
+                                        st.rerun()
+                        
+                        # Notes in expandable panel
+                        with st.expander("📝 View Alert Notes & Actions", expanded=False):
+                            st.markdown("**Alert Notes:**")
+                            st.info(alert.notes or "*No notes available for this alert.*")
+                            
+                            st.divider()
+                            st.markdown("**Add Note:**")
+                            new_note = st.text_area("Enter your notes here:", key="note_input", height=100,
+                                                  placeholder="Type your investigation notes, findings, or actions taken...")
+                            if st.button("💾 Save Note", key="save_note", use_container_width=True):
+                                if new_note.strip():
+                                    with st.spinner('Saving note...'):
+                                        if alert.notes:
+                                            alert.notes = alert.notes + "\n\n" + f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M')}] {new_note}"
+                                        else:
+                                            alert.notes = f"[{datetime.utcnow().strftime('%Y-%m-%d %H:%M')}] {new_note}"
+                                        session.commit()
+                                        log_audit_action(selected_alert_id, analyst_id, "NOTE_ADDED", new_note)
+                                    st.success("✅ Note saved successfully!")
+                                    st.rerun()
+                                else:
+                                    st.warning("Please enter a note before saving.")
+                        
+                        # Audit trail in expandable panel
+                        with st.expander("📜 View Audit Trail", expanded=False):
+                            audit_logs = session.query(AuditLog).filter(
+                                AuditLog.alert_id == selected_alert_id
+                            ).order_by(AuditLog.timestamp.desc()).all()
+                            
+                            if audit_logs:
+                                log_data = []
+                                for log in audit_logs:
+                                    log_data.append({
+                                        'Timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                                        'Analyst': log.analyst_id,
+                                        'Action': log.action,
+                                        'Details': log.details or '-'
+                                    })
+                                st.dataframe(pd.DataFrame(log_data), use_container_width=True, hide_index=True)
                             else:
-                                st.warning("Please enter a note before saving.")
+                                st.info("No audit log entries for this alert.")
+            
+            # Compact Charts Section
+            st.divider()
+            st.subheader("📊 Analytics Dashboard")
+            
+            if alerts:
+                # Prepare data for charts
+                alert_df = pd.DataFrame([{
+                    'alert_id': a.alert_id,
+                    'severity': a.severity,
+                    'status': a.status,
+                    'risk_score': a.risk_score,
+                    'created_at': a.created_at,
+                    'transaction_id': a.transaction_id
+                } for a in alerts])
+                
+                # Get merchant information for each alert
+                merchant_data = []
+                for alert in alerts:
+                    transaction = session.query(Transaction).filter(
+                        Transaction.transaction_id == alert.transaction_id
+                    ).first()
+                    if transaction:
+                        merchant_data.append({
+                            'merchant': transaction.merchant,
+                            'alert_id': alert.alert_id
+                        })
+                
+                merchant_df = pd.DataFrame(merchant_data) if merchant_data else pd.DataFrame()
+                
+                # Row 1: Severity Pie Chart and Status Chart
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if not alert_df.empty:
+                        st.markdown("#### Alerts by Severity")
+                        severity_counts = alert_df['severity'].value_counts()
+                        # Create pie chart with professional colors
+                        fig_severity = px.pie(
+                            values=severity_counts.values,
+                            names=severity_counts.index,
+                            color_discrete_sequence=['#ef4444', '#f59e0b', '#3b82f6', '#10b981'],  # Red, Orange, Blue, Green
+                            hole=0.3
+                        )
+                        fig_severity.update_layout(
+                            showlegend=True,
+                            font=dict(color='#1e293b', size=12),
+                            margin=dict(l=0, r=0, t=0, b=0)
+                        )
+                        st.plotly_chart(fig_severity, use_container_width=True)
+                        st.caption("**Distribution by Severity Level**")
+                
+                with col2:
+                    if not alert_df.empty:
+                        st.markdown("#### Alerts by Status")
+                        status_counts = alert_df['status'].value_counts()
+                        status_df = pd.DataFrame({
+                            'Status': status_counts.index,
+                            'Count': status_counts.values
+                        })
+                        st.bar_chart(status_df.set_index('Status'))
+                        st.caption("**Distribution by Status**")
+                
+                # Row 2: Top Risky Merchants (Horizontal Bar) and Time Chart
+                st.divider()
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    if not merchant_df.empty:
+                        st.markdown("#### Top Risky Merchants")
+                        merchant_counts = merchant_df['merchant'].value_counts().head(10)
+                        # Create horizontal bar chart
+                        merchant_df_chart = pd.DataFrame({
+                            'Merchant': merchant_counts.index,
+                            'Alert Count': merchant_counts.values
+                        })
+                        # Sort for horizontal display (largest at top)
+                        merchant_df_chart = merchant_df_chart.sort_values('Alert Count', ascending=True)
                         
-                        # Show audit log
-                        st.markdown("<br>", unsafe_allow_html=True)
-                        st.markdown("#### 📜 Audit Trail")
-                        audit_logs = session.query(AuditLog).filter(
-                            AuditLog.alert_id == selected_alert_id
-                        ).order_by(AuditLog.timestamp.desc()).all()
-                        
-                        if audit_logs:
-                            log_data = []
-                            for log in audit_logs:
-                                log_data.append({
-                                    'Timestamp': log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
-                                    'Analyst': log.analyst_id,
-                                    'Action': log.action,
-                                    'Details': log.details or '-'
-                                })
-                            st.dataframe(pd.DataFrame(log_data), use_container_width=True, hide_index=True)
-                        else:
-                            st.info("No audit log entries for this alert.")
-            
-            # Charts section
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.markdown("### 📊 Analytics Dashboard")
-            
-            col1, col2 = st.columns(2)
-            
-            with col1:
-                if alerts:
-                    severity_counts = pd.Series([a.severity for a in alerts]).value_counts()
-                    st.bar_chart(severity_counts)
-                    st.caption("**Alert Distribution by Severity**")
-            
-            with col2:
-                if alerts:
-                    status_counts = pd.Series([a.status for a in alerts]).value_counts()
-                    st.bar_chart(status_counts)
-                    st.caption("**Alert Distribution by Status**")
+                        # Use plotly for horizontal bar chart
+                        fig_merchants = go.Figure(go.Bar(
+                            x=merchant_df_chart['Alert Count'],
+                            y=merchant_df_chart['Merchant'],
+                            orientation='h',
+                            marker_color='#1e3a8a'
+                        ))
+                        fig_merchants.update_layout(
+                            xaxis_title="Alert Count",
+                            yaxis_title="",
+                            height=300,
+                            font=dict(color='#1e293b', size=11),
+                            margin=dict(l=0, r=0, t=0, b=0)
+                        )
+                        st.plotly_chart(fig_merchants, use_container_width=True)
+                        st.caption("**Top 10 Merchants by Alert Count**")
+                    else:
+                        st.info("No merchant data available.")
+                
+                with col2:
+                    if not alert_df.empty:
+                        st.markdown("#### Alerts Over Time")
+                        alert_df['date'] = pd.to_datetime(alert_df['created_at']).dt.date
+                        daily_counts = alert_df.groupby('date').size()
+                        daily_df = pd.DataFrame({
+                            'Date': daily_counts.index,
+                            'Alert Count': daily_counts.values
+                        })
+                        # Use plotly for better line chart
+                        fig_time = px.line(
+                            daily_df,
+                            x='Date',
+                            y='Alert Count',
+                            markers=True,
+                            color_discrete_sequence=['#1e3a8a']
+                        )
+                        fig_time.update_layout(
+                            xaxis_title="Date",
+                            yaxis_title="Alert Count",
+                            height=300,
+                            font=dict(color='#1e293b', size=11),
+                            margin=dict(l=0, r=0, t=0, b=0),
+                            hovermode='x unified'
+                        )
+                        st.plotly_chart(fig_time, use_container_width=True)
+                        st.caption("**Daily Alert Trends**")
+            else:
+                st.info("No alerts available for analytics.")
         
         elif view_mode == "Customer Profile":
-            st.markdown("### 👤 Customer Risk Profile & Investigation")
+            st.divider()
+            st.subheader("👤 Customer Risk Profile & Investigation")
             
             # Get customer ID input
             customer_id_input = st.text_input(
@@ -849,6 +1027,10 @@ def main():
         st.code(traceback.format_exc())
     finally:
         session.close()
+    
+    # Footer with branding
+    st.markdown("<hr>", unsafe_allow_html=True)
+    st.caption("Fraud Alert Management Simulator | Portfolio Prototype by Kunaal | 2025")
 
 
 if __name__ == '__main__':

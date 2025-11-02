@@ -1,0 +1,14 @@
+[theme]
+primaryColor = "#1e3a8a"  # Professional blue
+backgroundColor = "#f8fafc"  # Light gray background
+secondaryBackgroundColor = "#ffffff"  # White cards
+textColor = "#1e293b"  # Dark gray text
+font = "sans serif"
+
+[server]
+headless = true
+port = 8501
+
+[browser]
+gatherUsageStats = false
+

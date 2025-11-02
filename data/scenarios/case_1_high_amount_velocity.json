@@ -1,0 +1,107 @@
+{
+  "scenario_name": "High Amount + Velocity Fraud Case",
+  "description": "Customer makes multiple large transactions within a short time period, indicating potential card testing or fraudulent spending spree",
+  "alert_type": "HIGH_AMOUNT + VELOCITY",
+  "expected_severity": "CRITICAL",
+  "expected_rules": ["HIGH_AMOUNT", "VELOCITY"],
+  "transactions": [
+    {
+      "transaction_id": "TXN_SCENARIO_001",
+      "customer_id": "CUST_SCENARIO_001",
+      "merchant": "Electronics Direct",
+      "amount": 7500.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-15T14:30:00",
+      "card_type": "VISA",
+      "device_id": "DEV_SCENARIO_001",
+      "ip_address": "192.168.1.100",
+      "country": "United States",
+      "city": "New York",
+      "mcc_code": "5732",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_002",
+      "customer_id": "CUST_SCENARIO_001",
+      "merchant": "Luxury Watches Inc",
+      "amount": 6500.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-15T14:45:00",
+      "card_type": "VISA",
+      "device_id": "DEV_SCENARIO_001",
+      "ip_address": "192.168.1.100",
+      "country": "United States",
+      "city": "New York",
+      "mcc_code": "5094",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_003",
+      "customer_id": "CUST_SCENARIO_001",
+      "merchant": "Premium Electronics",
+      "amount": 8500.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-15T15:00:00",
+      "card_type": "VISA",
+      "device_id": "DEV_SCENARIO_001",
+      "ip_address": "192.168.1.100",
+      "country": "United States",
+      "city": "New York",
+      "mcc_code": "5732",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_004",
+      "customer_id": "CUST_SCENARIO_001",
+      "merchant": "High-End Jewelry",
+      "amount": 9200.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-15T15:15:00",
+      "card_type": "VISA",
+      "device_id": "DEV_SCENARIO_001",
+      "ip_address": "192.168.1.100",
+      "country": "United States",
+      "city": "New York",
+      "mcc_code": "5944",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_005",
+      "customer_id": "CUST_SCENARIO_001",
+      "merchant": "Tech Superstore",
+      "amount": 6800.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-15T15:30:00",
+      "card_type": "VISA",
+      "device_id": "DEV_SCENARIO_001",
+      "ip_address": "192.168.1.100",
+      "country": "United States",
+      "city": "New York",
+      "mcc_code": "5732",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_006",
+      "customer_id": "CUST_SCENARIO_001",
+      "merchant": "Premium Goods Co",
+      "amount": 7100.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-15T15:45:00",
+      "card_type": "VISA",
+      "device_id": "DEV_SCENARIO_001",
+      "ip_address": "192.168.1.100",
+      "country": "United States",
+      "city": "New York",
+      "mcc_code": "5311",
+      "status": "completed"
+    }
+  ],
+  "investigation_notes": [
+    "All transactions exceed $5,000 threshold",
+    "6 transactions within 1 hour indicates velocity fraud",
+    "Same device and IP address used for all transactions",
+    "Multiple high-value merchants targeted quickly",
+    "Recommended action: Block card immediately and contact customer"
+  ]
+}
+

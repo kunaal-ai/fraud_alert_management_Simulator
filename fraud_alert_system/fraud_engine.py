@@ -3,6 +3,43 @@ from fraud_alert_system.database import get_session, Transaction, Alert
 from datetime import datetime, timedelta
 from sqlalchemy import func, and_, or_
 import uuid
+import yaml
+import os
+
+
+def load_config():
+    """Load configuration from config.yaml file."""
+    config_path = os.path.join(os.path.dirname(__file__), '..', 'config.yaml')
+    if not os.path.exists(config_path):
+        # Return default config if file doesn't exist
+        return {
+            'rules': {
+                'high_amount': {'threshold': 5000, 'enabled': True},
+                'velocity': {'threshold': 5, 'time_window_hours': 1, 'enabled': True},
+                'geo_jump': {'time_window_hours': 2, 'enabled': True},
+                'device_sharing': {'threshold': 3, 'time_window_days': 7, 'enabled': True},
+                'unusual_time': {'start_hour': 2, 'end_hour': 5, 'enabled': True},
+                'suspicious_merchant': {'high_risk_mcc_codes': ['7995', '7273', '5967', '5912'], 'enabled': True}
+            },
+            'rule_weights': {
+                'HIGH_AMOUNT': 30,
+                'VELOCITY': 25,
+                'GEO_JUMP': 20,
+                'DEVICE_SHARING': 15,
+                'UNUSUAL_TIME': 10,
+                'SUSPICIOUS_MERCHANT': 15,
+                'DEFAULT': 5
+            },
+            'severity_thresholds': {
+                'CRITICAL': 80,
+                'HIGH': 60,
+                'MEDIUM': 40,
+                'LOW': 0
+            }
+        }
+    
+    with open(config_path, 'r') as f:
+        return yaml.safe_load(f)
 
 
 class FraudDetectionEngine:
@@ -10,45 +47,54 @@ class FraudDetectionEngine:
     
     def __init__(self):
         self.session = get_session()
+        self.config = load_config()
     
     def calculate_risk_score(self, rules_triggered):
         """Calculate overall risk score (0-100) based on triggered rules."""
         base_score = 0
-        rule_weights = {
-            'HIGH_AMOUNT': 30,
-            'VELOCITY': 25,
-            'GEO_JUMP': 20,
-            'DEVICE_SHARING': 15,
-            'UNUSUAL_TIME': 10,
-            'SUSPICIOUS_MERCHANT': 15
-        }
+        rule_weights = self.config.get('rule_weights', {})
+        default_weight = rule_weights.get('DEFAULT', 5)
         
         for rule in rules_triggered:
-            base_score += rule_weights.get(rule, 5)
+            base_score += rule_weights.get(rule, default_weight)
         
         return min(100, base_score)
     
     def get_severity(self, risk_score):
         """Map risk score to severity level."""
-        if risk_score >= 80:
+        thresholds = self.config.get('severity_thresholds', {})
+        critical = thresholds.get('CRITICAL', 80)
+        high = thresholds.get('HIGH', 60)
+        medium = thresholds.get('MEDIUM', 40)
+        
+        if risk_score >= critical:
             return 'CRITICAL'
-        elif risk_score >= 60:
+        elif risk_score >= high:
             return 'HIGH'
-        elif risk_score >= 40:
+        elif risk_score >= medium:
             return 'MEDIUM'
         else:
             return 'LOW'
     
     def check_high_amount(self, transaction):
         """Rule: Transaction amount exceeds threshold."""
-        threshold = 5000
+        rule_config = self.config.get('rules', {}).get('high_amount', {})
+        if not rule_config.get('enabled', True):
+            return False, None
+        
+        threshold = rule_config.get('threshold', 5000)
         if transaction.amount > threshold:
             return True, f"Amount ${transaction.amount:,.2f} exceeds threshold ${threshold:,.2f}"
         return False, None
     
     def check_velocity(self, transaction):
         """Rule: Too many transactions in short time window."""
-        time_window = timedelta(hours=1)
+        rule_config = self.config.get('rules', {}).get('velocity', {})
+        if not rule_config.get('enabled', True):
+            return False, None
+        
+        time_window_hours = rule_config.get('time_window_hours', 1)
+        time_window = timedelta(hours=time_window_hours)
         start_time = transaction.transaction_date - time_window
         
         count = self.session.query(func.count(Transaction.id)).filter(
@@ -60,15 +106,20 @@ class FraudDetectionEngine:
             )
         ).scalar()
         
-        threshold = 5
+        threshold = rule_config.get('threshold', 5)
         if count >= threshold:
-            return True, f"Customer made {count + 1} transactions in the last hour"
+            return True, f"Customer made {count + 1} transactions in the last {time_window_hours} hour(s)"
         return False, None
     
     def check_geo_jump(self, transaction):
         """Rule: Geographic location jump (impossible travel)."""
+        rule_config = self.config.get('rules', {}).get('geo_jump', {})
+        if not rule_config.get('enabled', True):
+            return False, None
+        
         # Check for transactions in different locations within short time
-        time_window = timedelta(hours=2)
+        time_window_hours = rule_config.get('time_window_hours', 2)
+        time_window = timedelta(hours=time_window_hours)
         start_time = transaction.transaction_date - time_window
         
         recent_transactions = self.session.query(Transaction).filter(
@@ -88,8 +139,13 @@ class FraudDetectionEngine:
     
     def check_device_sharing(self, transaction):
         """Rule: Same device used by multiple customers (potential card sharing)."""
+        rule_config = self.config.get('rules', {}).get('device_sharing', {})
+        if not rule_config.get('enabled', True):
+            return False, None
+        
         # Count how many different customers used this device recently
-        time_window = timedelta(days=7)
+        time_window_days = rule_config.get('time_window_days', 7)
+        time_window = timedelta(days=time_window_days)
         start_time = transaction.transaction_date - time_window
         
         unique_customers = self.session.query(func.count(func.distinct(Transaction.customer_id))).filter(
@@ -100,23 +156,34 @@ class FraudDetectionEngine:
             )
         ).scalar()
         
-        threshold = 3
+        threshold = rule_config.get('threshold', 3)
         if unique_customers >= threshold:
-            return True, f"Device {transaction.device_id} used by {unique_customers} different customers in the last 7 days"
+            return True, f"Device {transaction.device_id} used by {unique_customers} different customers in the last {time_window_days} days"
         return False, None
     
     def check_unusual_time(self, transaction):
         """Rule: Transaction at unusual time (e.g., 2-5 AM)."""
+        rule_config = self.config.get('rules', {}).get('unusual_time', {})
+        if not rule_config.get('enabled', True):
+            return False, None
+        
         hour = transaction.transaction_date.hour
-        # Flag transactions between 2 AM and 5 AM
-        if 2 <= hour <= 5:
+        start_hour = rule_config.get('start_hour', 2)
+        end_hour = rule_config.get('end_hour', 5)
+        
+        # Flag transactions within the unusual time window
+        if start_hour <= hour <= end_hour:
             return True, f"Transaction occurred at unusual time: {transaction.transaction_date.strftime('%H:%M')}"
         return False, None
     
     def check_suspicious_merchant(self, transaction):
         """Rule: Transaction at high-risk merchant category."""
-        # High-risk MCC codes (gaming, adult entertainment, etc.)
-        high_risk_mccs = ["7995", "7273", "5967", "5912"]  # Simplified list
+        rule_config = self.config.get('rules', {}).get('suspicious_merchant', {})
+        if not rule_config.get('enabled', True):
+            return False, None
+        
+        # High-risk MCC codes from config
+        high_risk_mccs = rule_config.get('high_risk_mcc_codes', ["7995", "7273", "5967", "5912"])
         if transaction.mcc_code in high_risk_mccs:
             return True, f"Transaction at high-risk merchant category (MCC: {transaction.mcc_code})"
         return False, None

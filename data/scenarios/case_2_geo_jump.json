@@ -1,0 +1,63 @@
+{
+  "scenario_name": "Geographic Jump Fraud Case",
+  "description": "Impossible travel pattern - customer makes transactions in distant locations within a short time frame",
+  "alert_type": "GEO_JUMP",
+  "expected_severity": "HIGH",
+  "expected_rules": ["GEO_JUMP"],
+  "transactions": [
+    {
+      "transaction_id": "TXN_SCENARIO_101",
+      "customer_id": "CUST_SCENARIO_002",
+      "merchant": "Coffee Shop NYC",
+      "amount": 15.50,
+      "currency": "USD",
+      "transaction_date": "2025-01-16T09:00:00",
+      "card_type": "MASTERCARD",
+      "device_id": "DEV_SCENARIO_002",
+      "ip_address": "203.0.113.10",
+      "country": "United States",
+      "city": "New York",
+      "mcc_code": "5814",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_102",
+      "customer_id": "CUST_SCENARIO_002",
+      "merchant": "Airport Duty Free LA",
+      "amount": 245.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-16T10:30:00",
+      "card_type": "MASTERCARD",
+      "device_id": "DEV_SCENARIO_002",
+      "ip_address": "198.51.100.20",
+      "country": "United States",
+      "city": "Los Angeles",
+      "mcc_code": "5309",
+      "status": "completed"
+    },
+    {
+      "transaction_id": "TXN_SCENARIO_103",
+      "customer_id": "CUST_SCENARIO_002",
+      "merchant": "Gas Station SF",
+      "amount": 45.00,
+      "currency": "USD",
+      "transaction_date": "2025-01-16T11:45:00",
+      "card_type": "MASTERCARD",
+      "device_id": "DEV_SCENARIO_002",
+      "ip_address": "192.0.2.30",
+      "country": "United States",
+      "city": "San Francisco",
+      "mcc_code": "5542",
+      "status": "completed"
+    }
+  ],
+  "investigation_notes": [
+    "Transaction in New York at 09:00",
+    "Transaction in Los Angeles at 10:30 (1.5 hours later) - physically impossible",
+    "Transaction in San Francisco at 11:45 - also impossible given previous location",
+    "All transactions use same device ID suggesting potential device compromise",
+    "Geographic jumps suggest card testing or account takeover",
+    "Recommended action: Contact customer to verify locations and freeze card if suspicious"
+  ]
+}
+
