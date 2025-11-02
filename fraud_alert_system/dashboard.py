@@ -303,23 +303,38 @@ def perform_bulk_action(session, alert_ids, action, analyst_id, details=""):
     alerts = session.query(Alert).filter(Alert.alert_id.in_(alert_ids)).all()
     action_count = 0
     
-    for alert in alerts:
-        if action == "DISMISS":
-            alert.status = 'DISMISSED'
-            log_action = "DISMISSED"
-        elif action == "RESOLVE":
-            alert.status = 'RESOLVED'
-            alert.resolved_at = datetime.utcnow()
-            log_action = "RESOLVED"
-        elif action == "ASSIGN":
+    try:
+        for alert in alerts:
+            if action == "DISMISS":
+                alert.status = 'DISMISSED'
+                log_action = "DISMISSED"
+            elif action == "RESOLVE":
+                alert.status = 'RESOLVED'
+                alert.resolved_at = datetime.utcnow()
+                log_action = "RESOLVED"
+            elif action == "ASSIGN":
+                alert.analyst_id = analyst_id
+                log_action = "ASSIGNED"
+            else:
+                continue
+            
+            # Always update analyst_id when taking action
             alert.analyst_id = analyst_id
-            log_action = "ASSIGNED"
+            
+            # Log the action
+            log_audit_action(alert.alert_id, analyst_id, log_action, 
+                            f"Bulk action: {details}" if details else f"Bulk {action}")
+            action_count += 1
         
-        alert.analyst_id = analyst_id
+        # Commit all changes at once (more efficient)
         session.commit()
-        log_audit_action(alert.alert_id, analyst_id, log_action, 
-                        f"Bulk action: {details}" if details else f"Bulk {action}")
-        action_count += 1
+        
+        # Refresh the session to ensure objects are updated
+        session.expire_all()
+        
+    except Exception as e:
+        session.rollback()
+        raise e
     
     return action_count
 
@@ -489,10 +504,48 @@ def main():
             default=["LOW", "MEDIUM", "HIGH", "CRITICAL"]
         )
         
+        # Default to last 30 days including today to capture all alerts
+        # This ensures we don't miss alerts due to date boundary issues
+        default_end = datetime.now().date()
+        default_start = (datetime.now() - timedelta(days=30)).date()
         date_range = st.date_input(
             "Date Range",
-            value=(datetime.now() - timedelta(days=7), datetime.now()),
-            max_value=datetime.now()
+            value=(default_start, default_end),
+            max_value=datetime.now().date()
+        )
+        
+        # Get unique merchants and analysts for filters
+        temp_session = get_session()
+        try:
+            # Get unique merchants from transactions
+            merchants_query = temp_session.query(Transaction.merchant).distinct().all()
+            available_merchants = sorted([m[0] for m in merchants_query if m[0]]) if merchants_query else []
+            
+            # Get unique analysts from alerts
+            analysts_query = temp_session.query(Alert.analyst_id).distinct().filter(Alert.analyst_id.isnot(None)).all()
+            available_analysts = sorted([a[0] for a in analysts_query if a[0]]) if analysts_query else []
+        except Exception:
+            available_merchants = []
+            available_analysts = []
+        finally:
+            temp_session.close()
+        
+        if available_merchants:
+            merchant_filter = st.multiselect(
+                "Merchant",
+                available_merchants,
+                default=[],
+                help="Filter alerts by merchant name"
+            )
+        else:
+            merchant_filter = []
+            st.caption("ℹ️ No merchants available for filtering")
+        
+        analyst_filter = st.multiselect(
+            "Assigned Analyst",
+            (available_analysts + ["Unassigned"]) if available_analysts else ["Unassigned"],
+            default=[],
+            help="Filter alerts by assigned analyst or unassigned"
         )
         
         sort_option = st.selectbox(
@@ -512,6 +565,9 @@ def main():
     
     try:
         if view_mode == "Alert Queue":
+            # Initialize variable outside spinner block
+            all_alerts_for_analytics = []
+            
             # Build query with loading spinner
             with st.spinner('Loading alerts...'):
                 query = session.query(Alert).join(Transaction)
@@ -524,12 +580,32 @@ def main():
                 
                 if len(date_range) == 2:
                     start_date, end_date = date_range
+                    # Ensure we include the full end date (up to end of day)
+                    # Add one day to end_date and subtract 1 second to get end of the selected day
+                    start_datetime = datetime.combine(start_date, datetime.min.time())
+                    end_datetime = datetime.combine(end_date, datetime.max.time()) + timedelta(microseconds=999999)
                     query = query.filter(
                         and_(
-                            Alert.created_at >= datetime.combine(start_date, datetime.min.time()),
-                            Alert.created_at <= datetime.combine(end_date, datetime.max.time())
+                            Alert.created_at >= start_datetime,
+                            Alert.created_at <= end_datetime
                         )
                     )
+                
+                # Apply merchant filter
+                if merchant_filter:
+                    query = query.filter(Transaction.merchant.in_(merchant_filter))
+                
+                # Apply analyst filter
+                if analyst_filter:
+                    if "Unassigned" in analyst_filter:
+                        # Include both unassigned and specific analysts
+                        analyst_list = [a for a in analyst_filter if a != "Unassigned"]
+                        if analyst_list:
+                            query = query.filter(or_(Alert.analyst_id.is_(None), Alert.analyst_id.in_(analyst_list)))
+                        else:
+                            query = query.filter(Alert.analyst_id.is_(None))
+                    else:
+                        query = query.filter(Alert.analyst_id.in_(analyst_filter))
                 
                 alerts = query.all()
                 
@@ -543,59 +619,125 @@ def main():
                 elif sort_option == "Created Date (Oldest)":
                     alerts = sorted(alerts, key=lambda x: x.created_at)
                 
-                # Limit to realistic demo size (top 20)
+                # Store all alerts for analytics (before limiting for table display)
+                all_alerts_for_analytics = alerts.copy()
+                
+                # Limit to realistic demo size (top 20) for table display only
                 alerts = alerts[:20]
             
-            st.success(f"Loaded {len(alerts)} alerts")
+            st.success(f"Loaded {len(all_alerts_for_analytics)} alerts (showing top 20 in table)")
             
             st.divider()
             st.subheader("📈 Dashboard Overview")
             
-            # Calculate metrics
-            total_alerts = len(alerts)
-            open_alerts = len([a for a in alerts if a.status == 'OPEN'])
-            critical_alerts = len([a for a in alerts if a.severity == 'CRITICAL'])
-            high_alerts = len([a for a in alerts if a.severity == 'HIGH'])
-            medium_alerts = len([a for a in alerts if a.severity == 'MEDIUM'])
-            low_alerts = len([a for a in alerts if a.severity == 'LOW'])
-            escalated_alerts = len([a for a in alerts if a.status == 'ESCALATED'])
-            past_sla = len([a for a in alerts if get_sla_status(a) == 'PAST_SLA' and a.status in ['OPEN', 'REVIEWING']])
-            resolved_alerts = len([a for a in alerts if a.status == 'RESOLVED'])
+            # Calculate metrics from ALL matching alerts, not just the limited top 20
+            # This ensures metrics reflect the true state of all filtered alerts
+            metrics_alerts = all_alerts_for_analytics if all_alerts_for_analytics else alerts
+            
+            # For resolved and escalated counts, we need to query ALL alerts that match OTHER filters
+            # (not status filter, since we want to show counts regardless of status filter)
+            def build_base_query():
+                """Build base query with all filters except status filter."""
+                base_query = session.query(Alert).join(Transaction)
+                
+                # Apply all filters EXCEPT status filter
+                if severity_filter:
+                    base_query = base_query.filter(Alert.severity.in_(severity_filter))
+                
+                if len(date_range) == 2:
+                    start_date, end_date = date_range
+                    base_query = base_query.filter(
+                        and_(
+                            Alert.created_at >= datetime.combine(start_date, datetime.min.time()),
+                            Alert.created_at <= datetime.combine(end_date, datetime.max.time())
+                        )
+                    )
+                
+                if merchant_filter:
+                    base_query = base_query.filter(Transaction.merchant.in_(merchant_filter))
+                
+                if analyst_filter:
+                    if "Unassigned" in analyst_filter:
+                        analyst_list = [a for a in analyst_filter if a != "Unassigned"]
+                        if analyst_list:
+                            base_query = base_query.filter(or_(Alert.analyst_id.is_(None), Alert.analyst_id.in_(analyst_list)))
+                        else:
+                            base_query = base_query.filter(Alert.analyst_id.is_(None))
+                    else:
+                        base_query = base_query.filter(Alert.analyst_id.in_(analyst_filter))
+                
+                return base_query
+            
+            # Count resolved and escalated alerts (ignoring status filter)
+            try:
+                base_query = build_base_query()
+                resolved_alerts = base_query.filter(Alert.status == 'RESOLVED').count()
+                escalated_alerts = base_query.filter(Alert.status == 'ESCALATED').count()
+            except Exception as e:
+                # Fallback to filtered list if query fails
+                resolved_alerts = len([a for a in metrics_alerts if a.status == 'RESOLVED'])
+                escalated_alerts = len([a for a in metrics_alerts if a.status == 'ESCALATED'])
+            
+            # Calculate other metrics from filtered alerts
+            total_alerts = len(metrics_alerts)
+            open_alerts = len([a for a in metrics_alerts if a.status == 'OPEN'])
+            critical_alerts = len([a for a in metrics_alerts if a.severity == 'CRITICAL'])
+            high_alerts = len([a for a in metrics_alerts if a.severity == 'HIGH'])
+            medium_alerts = len([a for a in metrics_alerts if a.severity == 'MEDIUM'])
+            low_alerts = len([a for a in metrics_alerts if a.severity == 'LOW'])
+            past_sla = len([a for a in metrics_alerts if get_sla_status(a) == 'PAST_SLA' and a.status in ['OPEN', 'REVIEWING']])
             
             # Group 1: Overall Metrics
             st.markdown("#### Overall Status")
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Alerts", f"{total_alerts:,}", delta=None)
+                st.caption("ℹ️ Total alerts matching current filters")
             with col2:
                 st.metric("Open Alerts", f"{open_alerts:,}", 
                          delta=f"-{total_alerts - open_alerts}" if total_alerts > open_alerts else None)
+                st.caption("ℹ️ Alerts not yet resolved or dismissed")
             with col3:
                 st.metric("Resolved", f"{resolved_alerts:,}", delta=None)
+                st.caption("ℹ️ Alerts that have been resolved")
             
             # Group 2: Severity Breakdown
             st.markdown("#### Severity Breakdown")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
-                st.metric("Critical", critical_alerts, 
+                st.markdown('<div style="background-color: #fee2e2; padding: 10px; border-radius: 5px; border-left: 4px solid #dc2626;">', unsafe_allow_html=True)
+                st.metric("🔴 Critical", critical_alerts, 
                          delta="⚠️ Urgent" if critical_alerts > 0 else None,
                          delta_color="inverse" if critical_alerts > 0 else "normal")
+                st.caption("ℹ️ Highest risk - immediate action required")
+                st.markdown('</div>', unsafe_allow_html=True)
             with col2:
-                st.metric("High", high_alerts, delta=None)
+                st.markdown('<div style="background-color: #fef3c7; padding: 10px; border-radius: 5px; border-left: 4px solid #f59e0b;">', unsafe_allow_html=True)
+                st.metric("🟠 High", high_alerts, delta=None)
+                st.caption("ℹ️ High risk - review within 4 hours")
+                st.markdown('</div>', unsafe_allow_html=True)
             with col3:
-                st.metric("Medium", medium_alerts, delta=None)
+                st.markdown('<div style="background-color: #dbeafe; padding: 10px; border-radius: 5px; border-left: 4px solid #3b82f6;">', unsafe_allow_html=True)
+                st.metric("🔵 Medium", medium_alerts, delta=None)
+                st.caption("ℹ️ Moderate risk - review within 24 hours")
+                st.markdown('</div>', unsafe_allow_html=True)
             with col4:
-                st.metric("Low", low_alerts, delta=None)
+                st.markdown('<div style="background-color: #d1fae5; padding: 10px; border-radius: 5px; border-left: 4px solid #10b981;">', unsafe_allow_html=True)
+                st.metric("🟢 Low", low_alerts, delta=None)
+                st.caption("ℹ️ Low risk - review within 48 hours")
+                st.markdown('</div>', unsafe_allow_html=True)
             
             # Group 3: Action Required
             st.markdown("#### Action Required")
             col1, col2 = st.columns(2)
             with col1:
                 st.metric("Escalated", escalated_alerts, delta=None)
+                st.caption("ℹ️ Alerts requiring higher-level review")
             with col2:
                 st.metric("Past SLA", past_sla, 
                          delta="🚨 Action Required" if past_sla > 0 else None,
                          delta_color="inverse" if past_sla > 0 else "normal")
+                st.caption("ℹ️ Alerts older than 24 hours (SLA breached)")
             
             st.divider()
             
@@ -658,24 +800,35 @@ def main():
                 )
                 st.session_state.selected_alerts = [alert_options[label] for label in selected_alert_labels]
                 
-                # Minimal core columns only
+                # Minimal core columns only with enhanced colors
                 alert_data = []
                 for alert in alerts:
                     sla_status = get_sla_status(alert)
                     priority_score = calculate_priority_score(alert)
                     time_to_sla = get_time_to_sla(alert)
                     
-                    # Format SLA indicator (simplified)
+                    # Enhanced SLA indicator with colors
                     if sla_status == 'PAST_SLA':
                         sla_indicator = "🔴 Past SLA"
+                        sla_color = "#dc2626"  # Red
                     elif sla_status == 'APPROACHING_SLA':
                         sla_indicator = "🟡 Warning"
+                        sla_color = "#f59e0b"  # Orange
                     else:
                         sla_indicator = "🟢 OK"
+                        sla_color = "#10b981"  # Green
+                    
+                    # Color-coded severity
+                    severity_emoji = {
+                        'CRITICAL': '🔴',
+                        'HIGH': '🟠',
+                        'MEDIUM': '🔵',
+                        'LOW': '🟢'
+                    }.get(alert.severity, '⚪')
                     
                     alert_data.append({
                         'Alert ID': alert.alert_id,
-                        'Severity': alert.severity,
+                        'Severity': f"{severity_emoji} {alert.severity}",
                         'Risk Score': f"{alert.risk_score:.1f}",
                         'Priority': f"{priority_score:.1f}",
                         'SLA': sla_indicator,
@@ -685,8 +838,46 @@ def main():
                 
                 df_alerts = pd.DataFrame(alert_data)
                 
-                # Display minimal table
-                st.dataframe(df_alerts, use_container_width=True, hide_index=True, height=300)
+                # Display table with enhanced styling using pandas Styler
+                try:
+                    # Create styled dataframe with color coding
+                    def color_severity(val):
+                        val_str = str(val).upper()
+                        if 'CRITICAL' in val_str:
+                            return 'background-color: #fee2e2; color: #991b1b; font-weight: bold'
+                        elif 'HIGH' in val_str:
+                            return 'background-color: #fef3c7; color: #92400e; font-weight: bold'
+                        elif 'MEDIUM' in val_str:
+                            return 'background-color: #dbeafe; color: #1e40af'
+                        elif 'LOW' in val_str:
+                            return 'background-color: #d1fae5; color: #065f46'
+                        return ''
+                    
+                    def color_sla(val):
+                        val_str = str(val).upper()
+                        if 'PAST SLA' in val_str or '🔴' in str(val):
+                            return 'background-color: #fee2e2; color: #991b1b; font-weight: bold'
+                        elif 'WARNING' in val_str or '🟡' in str(val):
+                            return 'background-color: #fef3c7; color: #92400e'
+                        elif 'OK' in val_str or '🟢' in str(val):
+                            return 'background-color: #d1fae5; color: #065f46'
+                        return ''
+                    
+                    # Use map instead of applymap for newer pandas versions
+                    try:
+                        styled_df = (df_alerts.style
+                                    .map(color_severity, subset=['Severity'])
+                                    .map(color_sla, subset=['SLA']))
+                    except AttributeError:
+                        # Fallback for older pandas versions
+                        styled_df = (df_alerts.style
+                                    .applymap(color_severity, subset=['Severity'])
+                                    .applymap(color_sla, subset=['SLA']))
+                    
+                    st.dataframe(styled_df, use_container_width=True, hide_index=True, height=300)
+                except Exception:
+                    # Fallback to unstyled dataframe if styling fails
+                    st.dataframe(df_alerts, use_container_width=True, hide_index=True, height=300)
                 
                 st.divider()
                 
@@ -844,8 +1035,12 @@ def main():
             st.divider()
             st.subheader("📊 Analytics Dashboard")
             
-            if alerts:
-                # Prepare data for charts
+            # Use all alerts for analytics (not just the limited 20 for table)
+            # This ensures charts show full data, not just the 20 shown in the table
+            analytics_alerts = all_alerts_for_analytics if all_alerts_for_analytics else alerts
+            
+            if analytics_alerts:
+                # Prepare data for charts from ALL matching alerts
                 alert_df = pd.DataFrame([{
                     'alert_id': a.alert_id,
                     'severity': a.severity,
@@ -853,11 +1048,11 @@ def main():
                     'risk_score': a.risk_score,
                     'created_at': a.created_at,
                     'transaction_id': a.transaction_id
-                } for a in alerts])
+                } for a in analytics_alerts])
                 
-                # Get merchant information for each alert
+                # Get merchant information for each alert (use all alerts for analytics)
                 merchant_data = []
-                for alert in alerts:
+                for alert in analytics_alerts:
                     transaction = session.query(Transaction).filter(
                         Transaction.transaction_id == alert.transaction_id
                     ).first()
@@ -940,32 +1135,103 @@ def main():
                 with col2:
                     if not alert_df.empty:
                         st.markdown("#### Alerts Over Time")
+                        # Convert to datetime and extract date
                         alert_df['date'] = pd.to_datetime(alert_df['created_at']).dt.date
-                        daily_counts = alert_df.groupby('date').size()
-                        daily_df = pd.DataFrame({
-                            'Date': daily_counts.index,
-                            'Alert Count': daily_counts.values
-                        })
-                        # Use plotly for better line chart
-                        fig_time = px.line(
-                            daily_df,
-                            x='Date',
-                            y='Alert Count',
-                            markers=True,
-                            color_discrete_sequence=['#1e3a8a']
-                        )
+                        
+                        # Group by date and count alerts per day
+                        daily_counts = alert_df.groupby('date').size().reset_index(name='Alert Count')
+                        daily_counts.columns = ['Date', 'Alert Count']
+                        
+                        # Sort by date to ensure proper time series
+                        daily_counts = daily_counts.sort_values('Date')
+                        
+                        # Use plotly for better line chart with area fill
+                        fig_time = go.Figure()
+                        fig_time.add_trace(go.Scatter(
+                            x=daily_counts['Date'],
+                            y=daily_counts['Alert Count'],
+                            mode='lines+markers',
+                            fill='tonexty' if len(daily_counts) > 1 else 'tozeroy',
+                            fillcolor='rgba(30, 58, 138, 0.2)',
+                            line=dict(color='#1e3a8a', width=3),
+                            marker=dict(color='#1e3a8a', size=8)
+                        ))
+                        
                         fig_time.update_layout(
                             xaxis_title="Date",
                             yaxis_title="Alert Count",
                             height=300,
                             font=dict(color='#1e293b', size=11),
                             margin=dict(l=0, r=0, t=0, b=0),
-                            hovermode='x unified'
+                            hovermode='x unified',
+                            xaxis=dict(type='date'),
+                            showlegend=False
                         )
+                        
                         st.plotly_chart(fig_time, use_container_width=True)
-                        st.caption("**Daily Alert Trends**")
+                        st.caption(f"**Daily Alert Trends** ({len(alert_df)} total alerts shown)")
+                    else:
+                        st.info("No alert data available for time series.")
             else:
                 st.info("No alerts available for analytics.")
+            
+            # Mini Audit Log Feed at bottom
+            st.divider()
+            st.subheader("📜 Recent Activity Feed")
+            st.caption("Last 5 system actions across all alerts")
+            
+            # Get last 5 audit log entries
+            recent_logs = session.query(AuditLog).order_by(AuditLog.timestamp.desc()).limit(5).all()
+            
+            if recent_logs:
+                log_feed_data = []
+                for log in recent_logs:
+                    # Get alert details for context
+                    alert = session.query(Alert).filter(Alert.alert_id == log.alert_id).first()
+                    alert_severity = alert.severity if alert else "N/A"
+                    
+                    # Format action with icon
+                    action_icon = {
+                        "VIEWED": "👁️",
+                        "ESCALATED": "🚨",
+                        "DISMISSED": "❌",
+                        "RESOLVED": "✅",
+                        "NOTE_ADDED": "📝",
+                        "REVIEWING": "🔍",
+                        "ASSIGNED": "👤"
+                    }.get(log.action, "⚪")
+                    
+                    log_feed_data.append({
+                        'Time': log.timestamp.strftime('%Y-%m-%d %H:%M:%S'),
+                        'Action': f"{action_icon} {log.action}",
+                        'Analyst': log.analyst_id,
+                        'Alert ID': log.alert_id[:12] + '...' if len(log.alert_id) > 12 else log.alert_id,
+                        'Severity': alert_severity,
+                        'Details': (log.details[:50] + '...') if log.details and len(log.details) > 50 else (log.details or '-')
+                    })
+                
+                log_df = pd.DataFrame(log_feed_data)
+                
+                # Color code by action type
+                def color_action(val):
+                    if 'RESOLVED' in str(val) or '✅' in str(val):
+                        return 'background-color: #d1fae5; color: #065f46'
+                    elif 'ESCALATED' in str(val) or '🚨' in str(val):
+                        return 'background-color: #fee2e2; color: #991b1b'
+                    elif 'DISMISSED' in str(val) or '❌' in str(val):
+                        return 'background-color: #e5e7eb; color: #374151'
+                    elif 'VIEWED' in str(val) or '👁️' in str(val):
+                        return 'background-color: #eff6ff; color: #1e40af'
+                    return ''
+                
+                try:
+                    styled_log_df = log_df.style.map(color_action, subset=['Action'])
+                except AttributeError:
+                    styled_log_df = log_df.style.applymap(color_action, subset=['Action'])
+                
+                st.dataframe(styled_log_df, use_container_width=True, hide_index=True, height=200)
+            else:
+                st.info("No recent activity to display.")
         
         elif view_mode == "Customer Profile":
             st.divider()
