@@ -3,14 +3,18 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from fraud_alert_system.database import get_session, Alert, Transaction, AuditLog
+from fraud_alert_system.database import get_session, Alert, Transaction, AuditLog, create_database
 from fraud_alert_system.priority_manager import (
     calculate_priority_score, get_sla_status, get_time_to_sla, sort_alerts_by_priority
 )
 from fraud_alert_system.customer_profiles import get_customer_risk_profile
+from fraud_alert_system.data_generator import generate_transactions, save_transactions_to_csv
+from fraud_alert_system.ingestion import load_transactions_from_csv
+from fraud_alert_system.fraud_engine import FraudDetectionEngine
 from datetime import datetime, timedelta
 from sqlalchemy import func, and_, or_
 import uuid
+import os
 
 
 # Custom CSS for professional styling
@@ -336,6 +340,47 @@ def authenticate_user(username, password):
     return False, None
 
 
+def initialize_sample_data_if_needed():
+    """Initialize sample data if database is empty (for new deployments)."""
+    session = get_session()
+    try:
+        # Check if database has any transactions
+        transaction_count = session.query(Transaction).count()
+        
+        if transaction_count == 0:
+            # Database is empty - generate sample data
+            with st.spinner('🔄 Initializing sample data (first run only)...'):
+                # Generate transactions
+                df = generate_transactions(num_transactions=500, days_back=30)
+                
+                # Save to temporary CSV file
+                temp_dir = os.path.join(os.path.dirname(__file__), '..', 'data')
+                os.makedirs(temp_dir, exist_ok=True)
+                csv_path = os.path.join(temp_dir, 'temp_transactions.csv')
+                save_transactions_to_csv(df, csv_path)
+                
+                # Load transactions into database
+                load_transactions_from_csv(csv_path)
+                
+                # Run fraud detection engine
+                engine = FraudDetectionEngine()
+                try:
+                    alerts_generated = engine.process_transactions()
+                    st.success(f'✅ Initialized database with {len(df)} transactions and {alerts_generated} alerts!')
+                finally:
+                    engine.close()
+                
+                # Clean up temp file
+                if os.path.exists(csv_path):
+                    os.remove(csv_path)
+        # If transaction_count > 0, database already has data, skip initialization
+    except Exception as e:
+        # If initialization fails, log error but don't block the app
+        st.warning(f'⚠️ Could not initialize sample data: {e}')
+    finally:
+        session.close()
+
+
 def main():
     st.set_page_config(
         page_title="FraudOps Alert Management",
@@ -343,6 +388,22 @@ def main():
         layout="wide",
         initial_sidebar_state="expanded"
     )
+    
+    # Initialize database - ensure tables exist (idempotent operation)
+    # This is critical for Streamlit Cloud deployments where the database may not exist
+    try:
+        create_database()
+    except Exception as e:
+        st.error(f"❌ Error initializing database: {e}")
+        import traceback
+        st.code(traceback.format_exc())
+        return
+    
+    # Initialize sample data if database is empty (for new deployments)
+    # Only runs once when database is first created
+    if 'data_initialized' not in st.session_state:
+        initialize_sample_data_if_needed()
+        st.session_state.data_initialized = True
     
     # Load custom CSS
     load_custom_css()
